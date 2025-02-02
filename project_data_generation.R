@@ -1,99 +1,4 @@
----
-title: "algo_architects_data"
-author: "Weldon Malbrough"
-date: "`r Sys.Date()`"
-output: 
-  html_document:
-    df_print: kable
-    theme: 
-      bootswatch: lumen
-    code_download: TRUE
----
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-```
-
-### Imports
-
-```{r imports}
-library(ggplot2)
-library(dplyr)
-library(FinCal)
-```
-```{r seeding}
-set.seed(580)
-```
-
-
-```{r historical_revenue}
-years <- seq(2015, 2024)
-
-projection_years <- seq(2025, 2029)
-
-historical_revenue <- numeric(length(years))
-historical_revenue[1] <- 25e6
-
-for (i in 2:length(years)) {
-  yoy_change <- c(0.0487, 0.0348, 0.0722, 0.0672, 0.0186, -0.1735, 0.1926, 0.1211, -0.0815, 0.0847)
-  growth_rate <- runif(1, 0.02, 0.08)
-  historical_revenue[i] <- historical_revenue[i-1] * (1 + yoy_change[i])
-}
-
-opex <- historical_revenue * runif(length(years), 0.60, 0.70)
-maintenance <- opex * runif(length(years), 0.15, 0.25)
-
-capex <- historical_revenue * runif(length(years), 0.10, 0.15)
-
-net_profit <- historical_revenue - (opex + capex)
-
-historical_data <- data.frame(
-  year = years,
-  revenue = historical_revenue,
-  maintenance = maintenance,
-  opex = opex,
-  capex = capex,
-  net_profit = net_profit
-)
-```
-
-```{r projections}
-future_revenue <- numeric(length(projection_years))
-future_opex <- numeric(length(projection_years))
-future_capex <- numeric(length(projection_years))
-future_maintenance <- numeric(length(projection_years))
-future_net_profit <- numeric(length(projection_years))
-
-future_revenue[1] <- historical_revenue[length(historical_revenue)] * 1.06
-future_opex[1] <- future_revenue[1] * runif(1, 0.60, 0.70)
-future_capex[1] <- future_revenue[1] * runif(1, 0.10, 0.15)
-future_maintenance[1] <- future_opex[1] * runif(1, 0.15, 0.25)
-future_net_profit[1] <- future_revenue[1] - (future_opex[1] + future_capex[1])
-
-for (i in 2:length(projection_years)) {
-  growth_rate <- runif(1, 0.04, 0.08)  
-  future_revenue[i] <- future_revenue[i-1] * (1 + growth_rate)
-  future_opex[i] <- future_revenue[i] * runif(1, 0.60, 0.70)
-  future_capex[i] <- future_revenue[i] * runif(1, 0.10, 0.15)
-  future_maintenance[i] <- future_revenue[i] * runif(1, 0.15, 0.25)
-  future_net_profit[i] <- future_revenue[i] - (future_opex[i] + future_capex[i])
-}
-
-projection_data <- data.frame(
-  year = projection_years,
-  revenue = future_revenue,
-  opex = future_opex,
-  capex = future_capex,
-  maintenance = future_maintenance,
-  net_profit = future_net_profit
-)
-
-full_data <- bind_rows(historical_data, projection_data)
-
-full_data
-```
-
-```{r test_test}
 library(tidyverse)
 library(scales)
 library(furrr)  # For parallel processing
@@ -108,8 +13,7 @@ CONSTANTS <- list(
   INITIAL_REVENUE = 25e6,
   DISCOUNT_RATE = 0.08,
   YOY_CHANGES = c(0.0487, 0.0348, 0.0722, 0.0672, 0.0186, 
-                  -0.1735, 0.2126, 0.1211, -0.0815, 0.0847),
-  YOY_PROJECTIONS = c(0.1215, 0.1342, 0.0845, 0.0943, 0.0812)
+                  -0.1735, 0.4326, 0.2711, -0.0815, 0.0847)
 )
 
 #' Generate Historical Financial Data
@@ -141,21 +45,18 @@ generate_historical_data <- function(start_year, end_year,
       net_profit = revenue - (opex + capex)
     )
 }
-```
 
-```{r next}
 #' Generate Future Financial Projections
 #' @param base_data Last row of historical data
 #' @param num_years Number of years to project
-#' #' @param yoy_growth Project YoY growth
 #' @return tibble with projected financial data
-generate_projections <- function(base_data, num_years, yoy_growth) {
+generate_projections <- function(base_data, num_years) {
   projection_years <- (max(base_data$year) + 1):(max(base_data$year) + num_years)
   
   # Initialize first year
   initial_projection <- tibble(
     year = min(projection_years),
-    revenue = tail(base_data$revenue, 1) * (1 + yoy_growth[1])
+    revenue = tail(base_data$revenue, 1) * 1.06
   ) %>%
     mutate(
       opex_ratio = runif(1, 0.60, 0.70),
@@ -165,14 +66,14 @@ generate_projections <- function(base_data, num_years, yoy_growth) {
   
   # Generate remaining years
   projections <- map_df(2:num_years, function(i) {
-    growth_rate <- runif(1, 0.07, 0.12)
+    growth_rate <- runif(1, 0.04, 0.08)
     
     tibble(
       year = projection_years[i],
-      revenue = tail(initial_projection$revenue, 1) * (1 + yoy_growth[i]),
-      opex_ratio = runif(1, 0.50, 0.60),
-      capex_ratio = runif(1, 0.06, 0.11),
-      maintenance_ratio = runif(1, 0.12, 0.2)
+      revenue = tail(initial_projection$revenue, 1) * (1 + growth_rate),
+      opex_ratio = runif(1, 0.60, 0.70),
+      capex_ratio = runif(1, 0.10, 0.15),
+      maintenance_ratio = runif(1, 0.15, 0.25)
     )
   })
   
@@ -191,7 +92,7 @@ generate_projections <- function(base_data, num_years, yoy_growth) {
 #' @param discount_rate Discount rate for NPV calculation
 #' @return List of ROI metrics
 calculate_roi_metrics <- function(historical_data, projection_data, discount_rate) {
-  initial_investment <- 5e6
+  initial_investment <- sum(historical_data$capex)
   cash_flows <- projection_data$net_profit
   
   # Calculate NPV
@@ -210,7 +111,6 @@ calculate_roi_metrics <- function(historical_data, projection_data, discount_rat
   list(
     npv = npv_value,
     irr = irr_value,
-    cumulative_flows = cumulative_flows,
     payback_period = payback_period
   )
 }
@@ -222,7 +122,7 @@ create_visualizations <- function(data) {
   # Revenue Plot
   revenue_plot <- data %>%
     ggplot(aes(x = year, y = revenue)) +
-    geom_line(aes(color = "Revenue"), linewidth = 1) +
+    geom_line(aes(color = "Revenue"), size = 1) +
     geom_point(size = 2) +
     scale_y_continuous(labels = label_dollar(scale = 1e-6, suffix = "M")) +
     scale_color_manual(values = c("Revenue" = "blue")) +
@@ -242,7 +142,7 @@ create_visualizations <- function(data) {
       values_to = "value"
     ) %>%
     ggplot(aes(x = year, y = value, color = metric)) +
-    geom_line(linewidth = 1) +
+    geom_line(size = 1) +
     geom_point(size = 2) +
     scale_y_continuous(labels = label_dollar(scale = 1e-6, suffix = "M")) +
     scale_color_brewer(palette = "Set1") +
@@ -259,18 +159,15 @@ create_visualizations <- function(data) {
     profit_components = profit_components
   )
 }
-```
 
-
-
-```{r main}
+# Main execution
 historical_data <- generate_historical_data(
   2015, 2024,
   CONSTANTS$INITIAL_REVENUE,
   CONSTANTS$YOY_CHANGES
 )
 
-projection_data <- generate_projections(historical_data, 5, CONSTANTS$YOY_PROJECTIONS)
+projection_data <- generate_projections(historical_data, 5)
 
 # Combine data
 full_data <- bind_rows(
@@ -300,15 +197,3 @@ cat(sprintf("Payback Period: %d years\n",
 # Display plots
 plots$revenue_plot
 plots$profit_components
-```
-
-
-```{r summary_functions}
-historical_data
-projection_data
-roi_metrics
-
-write.csv(full_data,"C:/Users/weldo/Projects/grad_school/infx580/project/data/full_data.csv")
-```
-
-
